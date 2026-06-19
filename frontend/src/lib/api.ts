@@ -188,3 +188,11 @@ export const initializeAI = async (token: string, apiKey: string, model?: string
   });
   return response.json();
 };
+export const queryDashboard = async (question: string, token: string) => {
+  const response = await api('/api/dashboard/query', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ question }),
+  });
+  return response.json();
+};

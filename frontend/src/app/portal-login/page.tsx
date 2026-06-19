@@ -2,20 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  FaArrowLeft, 
-  FaEnvelope, 
-  FaLock, 
-  FaEye, 
+import {
+  FaArrowLeft,
+  FaEnvelope,
+  FaLock,
+  FaEye,
   FaEyeSlash,
   FaUserTie,
   FaUser,
   FaUserPlus,
   FaPhone,
   FaIdCard,
-  FaLaptop,
-  FaGlobe,
-  FaClock,
   FaShieldAlt,
   FaExclamationTriangle,
   FaCheckCircle,
@@ -25,18 +22,131 @@ import {
   FaArrowRight,
   FaSpinner,
   FaDatabase,
-  FaNetworkWired
 } from "react-icons/fa";
 import { HiOutlineShieldCheck } from "react-icons/hi";
-import {api} from "@/lib/api";
+import { api } from "@/lib/api";
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+type Decision = "ALLOW" | "CHALLENGE" | "REVIEW" | "BLOCK";
+type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const severityStyle: Record<Severity, string> = {
+  LOW: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  MEDIUM: "text-amber-700 bg-amber-50 border-amber-200",
+  HIGH: "text-orange-700 bg-orange-50 border-orange-200",
+  CRITICAL: "text-red-700 bg-red-50 border-red-200",
+};
+
+const decisionStyle: Record<Decision, string> = {
+  ALLOW: "text-emerald-700 bg-emerald-50 ring-emerald-200",
+  CHALLENGE: "text-amber-700 bg-amber-50 ring-amber-200",
+  REVIEW: "text-blue-700 bg-blue-50 ring-blue-200",
+  BLOCK: "text-red-700 bg-red-50 ring-red-200",
+};
+
+function getSeverityIcon(severity: string) {
+  const cls = "w-4 h-4";
+  if (severity === "LOW") return <FaCheckCircle className={`${cls} text-emerald-500`} />;
+  if (severity === "CRITICAL") return <FaTimesCircle className={`${cls} text-red-500`} />;
+  return <FaExclamationTriangle className={`${cls} ${severity === "HIGH" ? "text-orange-500" : "text-amber-500"}`} />;
+}
+
+// ─── Field wrapper ────────────────────────────────────────────────────────────
+function Field({
+  label,
+  children,
+  right,
+}: {
+  label: string;
+  children: React.ReactNode;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-mono text-[9px] font-bold tracking-[0.18em] text-gray-400 uppercase">
+          {label}
+        </label>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+function Input({
+  icon,
+  right,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  icon: React.ReactNode;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+        {icon}
+      </span>
+      <input
+        {...props}
+        className="block w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-10 text-sm text-gray-900 placeholder-gray-400 transition focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+      />
+      {right && (
+        <span className="absolute inset-y-0 right-0 flex items-center pr-3">
+          {right}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Primary button ───────────────────────────────────────────────────────────
+function PrimaryBtn({
+  children,
+  disabled,
+  loading,
+  onClick,
+  type = "button",
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  loading?: boolean;
+  onClick?: () => void;
+  type?: "button" | "submit";
+}) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled || loading}
+      className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 px-4 text-sm font-semibold text-white transition hover:bg-gray-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      {loading ? (
+        <FaSpinner className="h-4 w-4 animate-spin" />
+      ) : (
+        children
+      )}
+    </button>
+  );
+}
+
+// ─── Step list for checking screen ───────────────────────────────────────────
+const CHECK_STEPS = [
+  "Checking device information",
+  "Verifying location data",
+  "Authenticating credentials",
+  "Running AI security analysis",
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function PortalLogin() {
   const router = useRouter();
-  
-  // ============================================
+
   // UI State
-  // ============================================
   const [isLogin, setIsLogin] = useState(true);
+  const [loginRole, setLoginRole] = useState<"customer" | "bank" | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedRole, setSelectedRole] = useState<"bank" | "customer" | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -44,9 +154,7 @@ export default function PortalLogin() {
   const [isChecking, setIsChecking] = useState(false);
   const [checkStep, setCheckStep] = useState(0);
 
-  // ============================================
-  // Device & Location Info
-  // ============================================
+  // Device & Location
   const [deviceInfo, setDeviceInfo] = useState({
     deviceId: "",
     os: "Unknown",
@@ -59,13 +167,8 @@ export default function PortalLogin() {
     city: "Unknown",
   });
 
-  // ============================================
-  // Form Data
-  // ============================================
-  const [loginData, setLoginData] = useState({
-    email: "",
-    password: "",
-  });
+  // Forms
+  const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
     name: "",
     email: "",
@@ -74,9 +177,7 @@ export default function PortalLogin() {
     accountType: "SAVINGS",
   });
 
-  // ============================================
-  // Risk & OTP State
-  // ============================================
+  // Risk & OTP
   const [showRiskResult, setShowRiskResult] = useState(false);
   const [showOTP, setShowOTP] = useState(false);
   const [riskResult, setRiskResult] = useState<any>(null);
@@ -87,132 +188,43 @@ export default function PortalLogin() {
 
   const HARDCODED_OTP = "123456";
 
-  // ============================================
-  // Sample Data for Display
-  // ============================================
-  const sampleData = {
-    device: {
-      deviceId: "Chrome_Windows_1920x1080",
-      os: "Windows",
-      browser: "Chrome",
-      isNewDevice: false,
-    },
-    location: {
-      ipAddress: "103.21.158.42",
-      country: "IN",
-      city: "Mumbai",
-    },
-    behavior: {
-      eventType: "LOGIN",
-      loginHour: 14,
-      sessionDuration: 0,
-      typingSpeed: 72,
-    },
-    metadata: {
-      channel: "WEB",
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      timestamp: new Date().toISOString(),
-    },
-  };
-
-  // Sample Response Data
-  const sampleResponse = {
-    success: true,
-    token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    user: {
-      id: "65a1b2c3d4e5f67890123456",
-      userId: "user_JObyohTB76",
-      name: "Priyanshu Joshi",
-      email: "joshipriyanshu5753@gmail.com",
-      role: "customer",
-      kycVerified: false,
-    },
-    risk: {
-      riskScore: 44,
-      trustScore: 56,
-      severity: "MEDIUM",
-      decision: "CHALLENGE",
-      reasons: [
-        "Unknown device: Chrome_Windows_1920x1080 (+18)",
-        "Login from new city: Mumbai (+8)",
-        "New IP subnet 103.21.x.x (+6)",
-        "No MFA on account (+7)",
-      ],
-      explanation: "This login event was challenged primarily due to the use of an unrecognized Windows/Chrome device...",
-      recommendations: [
-        "Send OTP challenge before allowing access",
-        "Push in-app notification",
-        "Cap transaction ceiling",
-        "Force-enroll this account in MFA",
-      ],
-      timestamp: new Date().toISOString(),
-      incidentId: "INC-20260619-4B1BC801",
-    },
-  };
-
-  // ============================================
-  // Detect Device & Location
-  // ============================================
+  // ── Detect device & location ─────────────────────────────────────────────
   useEffect(() => {
-    const userAgent = window.navigator.userAgent;
+    const ua = window.navigator.userAgent;
     let browser = "Unknown";
     let os = "Unknown";
-
-    if (userAgent.indexOf("Chrome") > -1) browser = "Chrome";
-    else if (userAgent.indexOf("Safari") > -1) browser = "Safari";
-    else if (userAgent.indexOf("Firefox") > -1) browser = "Firefox";
-    else if (userAgent.indexOf("Edge") > -1) browser = "Edge";
-
-    if (userAgent.indexOf("Windows") > -1) os = "Windows";
-    else if (userAgent.indexOf("Mac") > -1) os = "macOS";
-    else if (userAgent.indexOf("Linux") > -1) os = "Linux";
-    else if (userAgent.indexOf("Android") > -1) os = "Android";
-    else if (userAgent.indexOf("iPhone") > -1 || userAgent.indexOf("iPad") > -1) os = "iOS";
-
+    if (ua.indexOf("Chrome") > -1) browser = "Chrome";
+    else if (ua.indexOf("Safari") > -1) browser = "Safari";
+    else if (ua.indexOf("Firefox") > -1) browser = "Firefox";
+    else if (ua.indexOf("Edge") > -1) browser = "Edge";
+    if (ua.indexOf("Windows") > -1) os = "Windows";
+    else if (ua.indexOf("Mac") > -1) os = "macOS";
+    else if (ua.indexOf("Linux") > -1) os = "Linux";
+    else if (ua.indexOf("Android") > -1) os = "Android";
+    else if (ua.indexOf("iPhone") > -1 || ua.indexOf("iPad") > -1) os = "iOS";
     const screenInfo = `${window.screen.width}x${window.screen.height}`;
     const deviceId = `${browser}_${os}_${screenInfo}`.replace(/\s/g, "_");
-
-    setDeviceInfo({
-      deviceId: deviceId.slice(0, 40),
-      os,
-      browser,
-      isNewDevice: false,
-    });
+    setDeviceInfo({ deviceId: deviceId.slice(0, 40), os, browser, isNewDevice: false });
 
     fetch("https://ipapi.co/json/")
-      .then(res => res.json())
-      .then(data => {
-        setLocationInfo({
-          ipAddress: data.ip || "Unknown",
-          country: data.country_code || "Unknown",
-          city: data.city || "Unknown",
-        });
-      })
-      .catch(() => {
-        setLocationInfo({
-          ipAddress: "Unknown",
-          country: "Unknown",
-          city: "Unknown",
-        });
-      });
+      .then((r) => r.json())
+      .then((d) =>
+        setLocationInfo({ ipAddress: d.ip || "Unknown", country: d.country_code || "Unknown", city: d.city || "Unknown" })
+      )
+      .catch(() =>
+        setLocationInfo({ ipAddress: "Unknown", country: "Unknown", city: "Unknown" })
+      );
   }, []);
 
-  // ============================================
-  // Navigation
-  // ============================================
+  // ── Navigation ────────────────────────────────────────────────────────────
   const handleBack = () => router.push("/");
 
   const routeToDashboard = (user: any) => {
-    if (user.role === "admin" || user.role === "analyst") {
-      router.push("/admin-dashboard");
-    } else {
-      router.push("/customer-portal");
-    }
+    if (user.role === "admin" || user.role === "analyst") router.push("/admin-dashboard");
+    else router.push("/customer-portal");
   };
 
-  // ============================================
-  // Handle Login with Sample Data Display
-  // ============================================
+  // ── Login ─────────────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -220,17 +232,10 @@ export default function PortalLogin() {
     setIsChecking(true);
     setCheckStep(0);
 
-    // Show checking steps
-    const steps = [
-      { msg: "🔍 Checking device information...", delay: 500 },
-      { msg: "🌐 Verifying location data...", delay: 1000 },
-      { msg: "🔐 Authenticating credentials...", delay: 1500 },
-      { msg: "🛡️ Running AI security analysis...", delay: 2000 },
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
+    const delays = [500, 1000, 1500, 2000];
+    for (let i = 0; i < delays.length; i++) {
       setCheckStep(i);
-      await new Promise(resolve => setTimeout(resolve, steps[i].delay));
+      await new Promise((res) => setTimeout(res, delays[i]));
     }
 
     try {
@@ -241,76 +246,46 @@ export default function PortalLogin() {
           password: loginData.password,
           device: deviceInfo,
           location: locationInfo,
-          behavior: {
-            eventType: "LOGIN",
-            loginHour: new Date().getHours(),
-            sessionDuration: 0,
-            typingSpeed: 72,
-          },
-          metadata: {
-            channel: "WEB",
-            userAgent: window.navigator.userAgent,
-            timestamp: new Date().toISOString(),
-          },
+          behavior: { eventType: "LOGIN", loginHour: new Date().getHours(), sessionDuration: 0, typingSpeed: 72 },
+          metadata: { channel: "WEB", userAgent: window.navigator.userAgent, timestamp: new Date().toISOString() },
         }),
       });
-
       const data = await response.json();
-
-      if (!data.success) {
-        setError(data.message || "Login failed");
-        setLoading(false);
-        setIsChecking(false);
-        return;
-      }
-
-      // Store in localStorage
+      if (!data.success) { setError(data.message || "Login failed"); setLoading(false); setIsChecking(false); return; }
       setUserData(data.user);
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
       localStorage.setItem("riskData", JSON.stringify(data.risk));
-
       setRiskResult(data.risk);
       setShowRiskResult(true);
       setLoading(false);
       setIsChecking(false);
-
-      if (data.risk.decision === "CHALLENGE" || data.risk.decision === "REVIEW") {
-        setShowOTP(true);
-      } else {
-        routeToDashboard(data.user);
-      }
-    } catch (err) {
+      if (data.risk.decision === "CHALLENGE" || data.risk.decision === "REVIEW") setShowOTP(true);
+      else routeToDashboard(data.user);
+    } catch {
       setError("Network error. Please try again.");
       setLoading(false);
       setIsChecking(false);
     }
   };
 
-  // ============================================
-  // OTP Verification
-  // ============================================
+  // ── OTP ───────────────────────────────────────────────────────────────────
   const handleVerifyOTP = () => {
     if (otpInput === HARDCODED_OTP) {
       setOtpSuccess(true);
       setOtpError("");
-      setTimeout(() => {
-        if (userData) routeToDashboard(userData);
-      }, 1500);
+      setTimeout(() => { if (userData) routeToDashboard(userData); }, 1500);
     } else {
       setOtpError("Invalid OTP. Please try again.");
       setOtpInput("");
     }
   };
 
-  // ============================================
-  // Registration
-  // ============================================
+  // ── Register ──────────────────────────────────────────────────────────────
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
-
     try {
       const response = await api("/api/auth/register", {
         method: "POST",
@@ -323,255 +298,253 @@ export default function PortalLogin() {
           role: selectedRole === "bank" ? "analyst" : "customer",
         }),
       });
-
       const data = await response.json();
-
-      if (!data.success) {
-        setError(data.message || "Registration failed");
-        setLoading(false);
-        return;
-      }
-
+      if (!data.success) { setError(data.message || "Registration failed"); setLoading(false); return; }
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
-
       routeToDashboard(data.user);
-    } catch (err) {
+    } catch {
       setError("Network error. Please try again.");
       setLoading(false);
     }
   };
 
-  // ============================================
-  // Toggle Mode
-  // ============================================
+  // ── Toggle mode ───────────────────────────────────────────────────────────
   const toggleMode = () => {
     setIsLogin(!isLogin);
     setError(null);
     setSelectedRole(null);
+    setLoginRole(null);
     setShowRiskResult(false);
     setShowOTP(false);
     setRiskResult(null);
   };
 
-// ============================================
-// Helper Functions - FIXED
-// ============================================
-
-const getSeverityColor = (severity: string) => {
-  const map: Record<string, string> = {
-    LOW: "text-green-600 bg-green-50 border-green-200",
-    MEDIUM: "text-yellow-600 bg-yellow-50 border-yellow-200",
-    HIGH: "text-orange-600 bg-orange-50 border-orange-200",
-    CRITICAL: "text-red-600 bg-red-50 border-red-200",
-  };
-  return map[severity] || "text-neutral-600 bg-neutral-50 border-neutral-200";
-};
-
-const getSeverityIcon = (severity: string) => {
-  const map: Record<string, React.ReactElement> = {  // ← Changed from JSX.Element
-    LOW: <FaCheckCircle className="w-5 h-5 text-green-500" />,
-    MEDIUM: <FaExclamationTriangle className="w-5 h-5 text-yellow-500" />,
-    HIGH: <FaExclamationTriangle className="w-5 h-5 text-orange-500" />,
-    CRITICAL: <FaTimesCircle className="w-5 h-5 text-red-500" />,
-  };
-  return map[severity] || <FaShieldAlt className="w-5 h-5 text-neutral-500" />;
-};
-
-const getDecisionColor = (decision: string) => {
-  const map: Record<string, string> = {
-    ALLOW: "text-green-600 bg-green-50 border-green-200",
-    CHALLENGE: "text-yellow-600 bg-yellow-50 border-yellow-200",
-    REVIEW: "text-orange-600 bg-orange-50 border-orange-200",
-    BLOCK: "text-red-600 bg-red-50 border-red-200",
-  };
-  return map[decision] || "text-neutral-600 bg-neutral-50 border-neutral-200";
-};
-  // ============================================
-  // Render
-  // ============================================
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen w-full bg-[#f8f9fa]">
-      {/* Left Panel */}
-      <div className="relative hidden lg:flex lg:w-1/2 flex-col justify-between p-16 bg-gradient-to-br from-black to-neutral-900 text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 20% 50%, #ffffff 1px, transparent 1px)`,
-            backgroundSize: '40px 40px'
-          }} />
-        </div>
+    <div className="flex min-h-screen w-full bg-white">
 
+      {/* ── Left panel ───────────────────────────────────────────────────── */}
+      <aside className="relative hidden lg:flex lg:w-[420px] xl:w-[480px] flex-col justify-between p-12 bg-[#0A0A0B] flex-shrink-0 overflow-hidden">
+        {/* Subtle grid */}
+        <div
+          className="absolute inset-0 opacity-[0.035] pointer-events-none"
+          style={{
+            backgroundImage:
+              "linear-gradient(#ffffff 1px, transparent 1px), linear-gradient(90deg, #ffffff 1px, transparent 1px)",
+            backgroundSize: "56px 56px",
+          }}
+        />
+        {/* Soft glow */}
+        <div className="absolute -top-32 -left-32 w-[400px] h-[400px] bg-white/[0.02] rounded-full blur-3xl pointer-events-none" />
+
+        {/* Back */}
         <div className="relative z-10">
-          <button onClick={handleBack} className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors group">
-            <FaArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span className="text-sm font-medium">Back to Home</span>
+          <button
+            onClick={handleBack}
+            className="group inline-flex items-center gap-2 text-gray-500 hover:text-white transition-colors"
+          >
+            <FaArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            <span className="text-xs font-medium">Back to home</span>
           </button>
         </div>
 
-        <div className="relative z-10 flex items-center gap-3 mt-4">
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20">
-            <HiOutlineShieldCheck className="w-7 h-7 text-white" />
-          </div>
-          <span className="font-outfit text-2xl font-bold tracking-tight">TrustAI</span>
-        </div>
-
-        <div className="relative z-10 max-w-lg">
-          <h1 className="font-outfit text-4xl font-bold leading-tight mb-4">
-            {isLogin ? "Secure Access Portal" : "Create Your Account"}
-          </h1>
-          <p className="text-lg text-neutral-300 font-light leading-relaxed">
-            {isLogin 
-              ? "Sign in to access your personalized dashboard and security features."
-              : "Join TrustAI and protect your banking experience with AI-powered security."}
-          </p>
-        </div>
-
-        <div className="relative z-10 text-xs text-neutral-500">
-          <span>© 2026 TrustAI Systems. All rights reserved.</span>
-        </div>
-      </div>
-
-      {/* Right Panel */}
-      <div className="flex-1 flex items-center justify-center p-8 lg:p-12 overflow-y-auto">
-        <div className="w-full max-w-md">
-          {/* Mobile Back */}
-          <div className="lg:hidden mb-6">
-            <button onClick={handleBack} className="flex items-center gap-2 text-neutral-500 hover:text-black transition-colors group">
-              <FaArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-              <span className="text-sm font-medium">Back</span>
-            </button>
+        {/* Brand + copy */}
+        <div className="relative z-10 space-y-6">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-white/8 border border-white/10 flex items-center justify-center">
+              <HiOutlineShieldCheck className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-base font-bold text-white tracking-tight">TrustAI</span>
           </div>
 
-          {/* ============================================ */}
-          {/* CHECKING SCREEN - Shows sample data being checked */}
-          {/* ============================================ */}
+          <div>
+            <h1 className="text-3xl font-bold text-white leading-tight tracking-tight">
+              {isLogin ? "Secure access\nportal." : "Create your\naccount."}
+            </h1>
+            <p className="mt-3 text-sm text-gray-400 leading-relaxed font-light">
+              {isLogin
+                ? "Sign in to access your personalized dashboard and AI-powered security features."
+                : "Join TrustAI to protect your banking experience with real-time fraud detection."}
+            </p>
+          </div>
+
+          {/* Mini stat pills */}
+          <div className="space-y-2 pt-2">
+            {[
+              { dot: "bg-emerald-400", label: "AI risk scoring on every login" },
+              { dot: "bg-gray-600", label: "Device & location fingerprinting" },
+              { dot: "bg-gray-600", label: "OTP challenge on suspicious events" },
+            ].map((item) => (
+              <div key={item.label} className="flex items-center gap-2.5">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.dot}`} />
+                <span className="text-xs text-gray-500 font-mono">{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="relative z-10 text-[11px] text-gray-600 font-mono">
+          © 2026 TrustAI · All rights reserved
+        </p>
+      </aside>
+
+      {/* ── Right panel ──────────────────────────────────────────────────── */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12 overflow-y-auto bg-gray-50">
+        {/* Mobile back */}
+        <div className="lg:hidden w-full max-w-sm mb-8">
+          <button
+            onClick={handleBack}
+            className="group inline-flex items-center gap-2 text-gray-400 hover:text-gray-900 transition-colors"
+          >
+            <FaArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            <span className="text-xs font-medium">Back</span>
+          </button>
+        </div>
+
+        <div className="w-full max-w-sm space-y-6">
+
+          {/* ── Error banner ────────────────────────────────────────────── */}
+          {error && !isChecking && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <FaTimesCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* ── CHECKING SCREEN ─────────────────────────────────────────── */}
           {isChecking && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-blue-50 text-blue-600 mb-4">
-                  <FaSpinner className="w-8 h-8 animate-spin" />
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-gray-100 text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                  <FaSpinner className="w-5 h-5 text-gray-900 animate-spin" />
                 </div>
-                <h2 className="font-outfit text-2xl font-bold text-black tracking-tight">
-                  Analyzing Your Login
-                </h2>
-                <p className="mt-2 text-sm text-neutral-500">
-                  Checking your device, location, and credentials
+                <h2 className="text-base font-bold text-gray-900">Analyzing your login</h2>
+                <p className="text-xs text-gray-400 mt-1 font-mono">AI security check in progress</p>
+              </div>
+
+              {/* Context data */}
+              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                <p className="text-[9px] font-mono font-bold tracking-widest text-gray-400 uppercase mb-3 flex items-center gap-1.5">
+                  <FaDatabase className="w-3 h-3" /> Data being analyzed
                 </p>
-              </div>
-
-              {/* Sample Data Display */}
-              <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
-                <h4 className="text-xs font-bold uppercase text-neutral-500 mb-3 flex items-center gap-2">
-                  <FaDatabase className="w-3 h-3" />
-                  Data Being Analyzed
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-500">Device</span>
-                    <span className="font-mono text-neutral-800">{deviceInfo.browser} on {deviceInfo.os}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-500">Location</span>
-                    <span className="font-mono text-neutral-800">{locationInfo.city}, {locationInfo.country}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-500">IP Address</span>
-                    <span className="font-mono text-neutral-800">{locationInfo.ipAddress}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-500">Time</span>
-                    <span className="font-mono text-neutral-800">{new Date().toLocaleTimeString()}</span>
-                  </div>
+                <div className="space-y-2">
+                  {[
+                    { label: "Device", value: `${deviceInfo.browser} · ${deviceInfo.os}` },
+                    { label: "Location", value: `${locationInfo.city}, ${locationInfo.country}` },
+                    { label: "IP Address", value: locationInfo.ipAddress },
+                    { label: "Timestamp", value: new Date().toLocaleTimeString() },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between">
+                      <span className="text-[11px] text-gray-400">{row.label}</span>
+                      <span className="text-[11px] font-mono text-gray-700">{row.value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Checking Steps */}
-              <div className="space-y-2">
-                {[
-                  "🔍 Checking device information...",
-                  "🌐 Verifying location data...",
-                  "🔐 Authenticating credentials...",
-                  "🛡️ Running AI security analysis...",
-                ].map((step, idx) => (
-                  <div key={idx} className={`flex items-center gap-3 p-2 rounded-lg transition-all ${
-                    idx === checkStep ? "bg-blue-50 text-blue-700" :
-                    idx < checkStep ? "bg-green-50 text-green-700" : "bg-neutral-50 text-neutral-400"
-                  }`}>
-                    {idx < checkStep ? (
-                      <FaCheckCircle className="w-4 h-4 text-green-500" />
-                    ) : idx === checkStep ? (
-                      <FaSpinner className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <span className="w-4 h-4 rounded-full border-2 border-neutral-300" />
-                    )}
-                    <span className="text-sm">{step}</span>
-                  </div>
-                ))}
+              {/* Steps */}
+              <div className="px-5 py-4 space-y-2">
+                {CHECK_STEPS.map((step, idx) => {
+                  const done = idx < checkStep;
+                  const active = idx === checkStep;
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-all ${
+                        done ? "bg-emerald-50" : active ? "bg-gray-100" : ""
+                      }`}
+                    >
+                      {done ? (
+                        <FaCheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                      ) : active ? (
+                        <FaSpinner className="w-3.5 h-3.5 text-gray-600 animate-spin flex-shrink-0" />
+                      ) : (
+                        <span className="w-3.5 h-3.5 rounded-full border border-gray-300 flex-shrink-0" />
+                      )}
+                      <span className={`text-xs font-mono ${done ? "text-emerald-700" : active ? "text-gray-800" : "text-gray-400"}`}>
+                        {step}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* ============================================ */}
-          {/* RISK RESULT DISPLAY */}
-          {/* ============================================ */}
+          {/* ── RISK RESULT ─────────────────────────────────────────────── */}
           {showRiskResult && riskResult && !showOTP && !isChecking && (
-            <div className="space-y-4">
-              <div className="text-center mb-6">
-                <h2 className="font-outfit text-2xl font-bold text-black tracking-tight">
-                  Security Assessment
-                </h2>
-                <p className="mt-1 text-sm text-neutral-500 font-light">Login attempt analyzed</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              {/* Header */}
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-base font-bold text-gray-900">Security assessment</h2>
+                <p className="text-xs text-gray-400 mt-0.5 font-mono">Login attempt analyzed</p>
               </div>
 
-              <div className={`p-4 rounded-xl border-2 ${getSeverityColor(riskResult.severity)}`}>
+              {/* Score strip */}
+              <div className={`px-6 py-4 border-b border-gray-100 ${severityStyle[riskResult.severity as Severity] || "bg-gray-50 border-gray-200"}`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     {getSeverityIcon(riskResult.severity)}
                     <div>
-                      <div className="text-sm font-semibold">Risk Score</div>
-                      <div className="text-3xl font-bold">{riskResult.riskScore}/100</div>
+                      <p className="text-[10px] font-mono font-bold tracking-widest uppercase text-current opacity-60">
+                        Risk score
+                      </p>
+                      <p className="text-2xl font-bold leading-none">{riskResult.riskScore}<span className="text-sm font-normal opacity-50">/100</span></p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold">Decision</div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${getDecisionColor(riskResult.decision)}`}>
+                    <p className="text-[10px] font-mono font-bold tracking-widest uppercase opacity-60 mb-1">Decision</p>
+                    <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold tracking-wider ring-1 ring-inset ${decisionStyle[riskResult.decision as Decision] || ""}`}>
                       {riskResult.decision}
                     </span>
                   </div>
                 </div>
-                <div className="mt-2 text-sm">
-                  <span className="font-medium">Trust Score:</span> {riskResult.trustScore}/100
+                <div className="mt-2 text-xs opacity-70">
+                  Trust score: <strong>{riskResult.trustScore}/100</strong>
                 </div>
               </div>
 
-              {riskResult.reasons && riskResult.reasons.length > 0 && (
-                <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
-                  <h4 className="text-xs font-bold uppercase text-neutral-500 mb-2">Reasons</h4>
-                  <ul className="space-y-1">
-                    {riskResult.reasons.map((reason: string, idx: number) => (
-                      <li key={idx} className="text-sm text-neutral-700 flex items-start gap-2">
-                        <span className="text-neutral-400 mt-0.5">•</span>
-                        {reason}
+              {/* Reasons */}
+              {riskResult.reasons?.length > 0 && (
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <p className="text-[9px] font-mono font-bold tracking-widest text-gray-400 uppercase mb-3">
+                    Risk factors
+                  </p>
+                  <ul className="space-y-1.5">
+                    {riskResult.reasons.map((r: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-gray-700">
+                        <span className="mt-1 w-1 h-1 rounded-full bg-gray-400 flex-shrink-0" />
+                        {r}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
 
+              {/* AI Explanation */}
               {riskResult.explanation && (
-                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                  <h4 className="text-xs font-bold uppercase text-blue-600 mb-2">AI Explanation</h4>
-                  <p className="text-sm text-neutral-700 leading-relaxed">{riskResult.explanation}</p>
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                  <p className="text-[9px] font-mono font-bold tracking-widest text-gray-400 uppercase mb-2">
+                    AI explanation
+                  </p>
+                  <p className="text-xs text-gray-600 leading-relaxed">{riskResult.explanation}</p>
                 </div>
               )}
 
-              {riskResult.recommendations && riskResult.recommendations.length > 0 && (
-                <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
-                  <h4 className="text-xs font-bold uppercase text-purple-600 mb-2">Recommendations</h4>
-                  <ul className="space-y-2">
-                    {riskResult.recommendations.map((rec: string, idx: number) => (
-                      <li key={idx} className="text-sm text-neutral-700 flex items-start gap-2">
-                        <span className="text-purple-500 mt-0.5">▸</span>
+              {/* Recommendations */}
+              {riskResult.recommendations?.length > 0 && (
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <p className="text-[9px] font-mono font-bold tracking-widest text-gray-400 uppercase mb-3">
+                    Recommendations
+                  </p>
+                  <ul className="space-y-1.5">
+                    {riskResult.recommendations.map((rec: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-gray-700">
+                        <FaArrowRight className="w-2.5 h-2.5 mt-0.5 text-gray-400 flex-shrink-0" />
                         {rec}
                       </li>
                     ))}
@@ -579,93 +552,86 @@ const getDecisionColor = (decision: string) => {
                 </div>
               )}
 
+              {/* Incident ID */}
               {riskResult.incidentId && (
-                <div className="text-center text-xs text-neutral-400">
-                  Incident ID: <span className="font-mono">{riskResult.incidentId}</span>
+                <div className="px-6 py-3 border-b border-gray-100">
+                  <span className="text-[10px] font-mono text-gray-400">
+                    Incident · <span className="text-gray-600">{riskResult.incidentId}</span>
+                  </span>
                 </div>
               )}
 
-              <button
-                onClick={() => {
-                  if (riskResult.decision === "CHALLENGE" || riskResult.decision === "REVIEW") {
-                    setShowOTP(true);
-                  } else {
-                    routeToDashboard(userData);
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-black py-3 px-4 text-sm font-semibold text-white hover:bg-neutral-800 transition-all"
-              >
-                {riskResult.decision === "ALLOW" ? "Continue to Dashboard" : "Verify with OTP"}
-                <FaArrowRight className="h-4 w-4" />
-              </button>
+              {/* CTA */}
+              <div className="px-6 py-5">
+                <PrimaryBtn
+                  onClick={() => {
+                    if (riskResult.decision === "CHALLENGE" || riskResult.decision === "REVIEW") setShowOTP(true);
+                    else routeToDashboard(userData);
+                  }}
+                >
+                  {riskResult.decision === "ALLOW" ? "Continue to dashboard" : "Verify with OTP"}
+                  <FaArrowRight className="w-3.5 h-3.5" />
+                </PrimaryBtn>
+              </div>
             </div>
           )}
 
-          {/* ============================================ */}
-          {/* OTP VERIFICATION */}
-          {/* ============================================ */}
+          {/* ── OTP VERIFICATION ────────────────────────────────────────── */}
           {showOTP && !isChecking && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-yellow-100 text-yellow-600 mb-4">
-                  <FaMobileAlt className="w-8 h-8" />
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-gray-100 text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center mb-4">
+                  <FaMobileAlt className="w-5 h-5 text-amber-600" />
                 </div>
-                <h2 className="font-outfit text-2xl font-bold text-black tracking-tight">OTP Verification</h2>
-                <p className="mt-2 text-sm text-neutral-500">
-                  We've sent a one-time password to your registered mobile number
+                <h2 className="text-base font-bold text-gray-900">OTP verification</h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  A one-time password was sent to your registered mobile
                 </p>
-                <p className="text-xs text-neutral-400 mt-1">
-                  (Demo OTP: <span className="font-mono font-bold">123456</span>)
+                <p className="text-[10px] font-mono text-gray-400 mt-1">
+                  Demo OTP: <span className="font-bold text-gray-600">123456</span>
                 </p>
               </div>
 
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Enter OTP
-                  </label>
+              <div className="px-6 py-5 space-y-4">
+                <Field label="Enter OTP">
                   <input
                     type="text"
                     value={otpInput}
-                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="w-full text-center text-2xl tracking-[0.5em] py-4 rounded-xl border-2 border-neutral-300 focus:border-black focus:outline-none focus:ring-1 focus:ring-black font-mono"
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="block w-full rounded-lg border border-gray-200 bg-white py-3 text-center text-xl tracking-[0.6em] font-mono text-gray-900 placeholder-gray-300 transition focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
                     placeholder="000000"
                     maxLength={6}
                   />
-                  {otpError && <p className="text-sm text-red-600 mt-1">{otpError}</p>}
+                  {otpError && <p className="text-xs text-red-600 mt-1">{otpError}</p>}
                   {otpSuccess && (
-                    <div className="flex items-center gap-2 text-green-600 mt-2">
-                      <FaCheckCircle className="w-4 h-4" />
-                      <span className="text-sm font-medium">OTP Verified! Redirecting...</span>
+                    <div className="flex items-center gap-1.5 text-emerald-600 mt-1">
+                      <FaCheckCircle className="w-3.5 h-3.5" />
+                      <span className="text-xs font-medium">Verified — redirecting…</span>
                     </div>
                   )}
-                </div>
+                </Field>
 
-                <button
+                <PrimaryBtn
                   onClick={handleVerifyOTP}
                   disabled={otpInput.length !== 6 || otpSuccess}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-black py-3 px-4 text-sm font-semibold text-white hover:bg-neutral-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {otpSuccess ? (
-                    <><FaCheckCircle className="h-4 w-4" /> Verified</>
+                    <><FaCheckCircle className="w-3.5 h-3.5" /> Verified</>
                   ) : (
-                    <><FaKey className="h-4 w-4" /> Verify OTP</>
+                    <><FaKey className="w-3.5 h-3.5" /> Verify OTP</>
                   )}
-                </button>
+                </PrimaryBtn>
 
                 <button
                   onClick={() => setOtpInput(HARDCODED_OTP)}
-                  className="w-full text-center text-sm text-neutral-500 hover:text-black transition-colors"
+                  className="w-full text-center text-xs text-gray-400 hover:text-gray-900 transition-colors font-mono"
                 >
-                  Use demo OTP: 123456
+                  Autofill demo OTP
                 </button>
 
                 <button
-                  onClick={() => {
-                    setShowOTP(false);
-                    setShowRiskResult(true);
-                  }}
-                  className="w-full text-center text-xs text-neutral-400 hover:text-neutral-600 transition-colors"
+                  onClick={() => { setShowOTP(false); setShowRiskResult(true); }}
+                  className="w-full text-center text-xs text-gray-400 hover:text-gray-900 transition-colors"
                 >
                   ← Back to security assessment
                 </button>
@@ -673,291 +639,324 @@ const getDecisionColor = (decision: string) => {
             </div>
           )}
 
-          {/* ============================================ */}
-          {/* LOGIN FORM */}
-          {/* ============================================ */}
+          {/* ── LOGIN FORM ──────────────────────────────────────────────── */}
           {!isChecking && !showRiskResult && !showOTP && isLogin && (
-            <>
-              <div className="mb-8">
-                <h2 className="font-outfit text-2xl font-bold text-black tracking-tight">Welcome Back</h2>
-                <p className="mt-1 text-sm text-neutral-500 font-light">Sign in to your account</p>
-              </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
 
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-                  {error}
-                </div>
-              )}
-
-              <form onSubmit={handleLogin} className="space-y-5">
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Email Address
-                  </label>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaEnvelope className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type="email"
-                      required
-                      value={loginData.email}
-                      onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-800 placeholder-neutral-400 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="you@example.com"
-                    />
+              {/* Role picker — shown when no role selected */}
+              {!loginRole && (
+                <>
+                  <div className="px-6 py-5 border-b border-gray-100">
+                    <h2 className="text-base font-bold text-gray-900">Welcome back</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">Choose how you're signing in</p>
                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                      Password
-                    </label>
-                    <a href="#" className="text-xs text-neutral-500 hover:text-black transition-colors font-medium">
-                      Forgot password?
-                    </a>
-                  </div>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaLock className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={loginData.password}
-                      onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-10 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="••••••••"
-                    />
+                  <div className="px-6 py-6 space-y-3">
                     <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-neutral-400 hover:text-black transition-colors"
+                      onClick={() => setLoginRole("customer")}
+                      className="group w-full flex items-center gap-4 p-4 rounded-lg border border-gray-200 hover:border-gray-900 hover:bg-gray-50 transition-all text-left"
                     >
-                      {showPassword ? <FaEyeSlash className="h-4 w-4" /> : <FaEye className="h-4 w-4" />}
+                      <div className="w-9 h-9 rounded-lg bg-gray-100 group-hover:bg-gray-900 flex items-center justify-center transition-colors flex-shrink-0">
+                        <FaUser className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">Customer</p>
+                        <p className="text-[11px] font-mono text-gray-400 mt-0.5">Security · Transactions · Alerts</p>
+                      </div>
+                      <FaArrowRight className="w-3 h-3 text-gray-300 group-hover:text-gray-900 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                    </button>
+
+                    <button
+                      onClick={() => setLoginRole("bank")}
+                      className="group w-full flex items-center gap-4 p-4 rounded-lg border border-gray-200 hover:border-gray-900 hover:bg-gray-50 transition-all text-left"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-gray-100 group-hover:bg-gray-900 flex items-center justify-center transition-colors flex-shrink-0">
+                        <FaUserTie className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">Bank Employee</p>
+                        <p className="text-[11px] font-mono text-gray-400 mt-0.5">Admin dashboard · Fraud monitoring</p>
+                      </div>
+                      <FaArrowRight className="w-3 h-3 text-gray-300 group-hover:text-gray-900 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                     </button>
                   </div>
-                </div>
+                  <div className="px-6 pb-5 text-center border-t border-gray-100 pt-4">
+                    <button
+                      onClick={toggleMode}
+                      className="text-xs text-gray-400 hover:text-gray-900 transition-colors font-medium"
+                    >
+                      Don't have an account?{" "}
+                      <span className="text-gray-900 underline underline-offset-2">Sign up</span>
+                    </button>
+                  </div>
+                </>
+              )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-black py-3 px-4 text-sm font-semibold text-white transition-all hover:bg-neutral-800 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                >
-                  {loading ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <>
-                      <span>Sign In</span>
-                      <FaArrowLeft className="h-4 w-4 rotate-180" />
-                    </>
-                  )}
-                </button>
-              </form>
+              {/* Customer login */}
+              {loginRole === "customer" && (
+                <>
+                  <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+                    <button
+                      onClick={() => setLoginRole(null)}
+                      className="text-gray-400 hover:text-gray-900 transition-colors"
+                    >
+                      <FaArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div>
+                      <h2 className="text-base font-bold text-gray-900">Customer sign in</h2>
+                      <p className="text-xs text-gray-400 mt-0.5">Access your account portal</p>
+                    </div>
+                    <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-100 text-gray-500 text-[10px] font-mono">
+                      <FaUser className="w-2.5 h-2.5" /> Customer
+                    </span>
+                  </div>
+                  <form onSubmit={handleLogin} className="px-6 py-5 space-y-4">
+                    <Field label="Email address">
+                      <Input
+                        type="email"
+                        required
+                        value={loginData.email}
+                        onChange={(e) => setLoginData({ ...loginData, email: (e.target as HTMLInputElement).value })}
+                        placeholder="you@example.com"
+                        icon={<FaEnvelope className="w-3.5 h-3.5" />}
+                      />
+                    </Field>
+                    <Field
+                      label="Password"
+                      right={
+                        <a href="#" className="text-[10px] font-mono text-gray-400 hover:text-gray-900 transition-colors">
+                          Forgot password?
+                        </a>
+                      }
+                    >
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        value={loginData.password}
+                        onChange={(e) => setLoginData({ ...loginData, password: (e.target as HTMLInputElement).value })}
+                        placeholder="••••••••"
+                        icon={<FaLock className="w-3.5 h-3.5" />}
+                        right={
+                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-400 hover:text-gray-900 transition-colors">
+                            {showPassword ? <FaEyeSlash className="w-3.5 h-3.5" /> : <FaEye className="w-3.5 h-3.5" />}
+                          </button>
+                        }
+                      />
+                    </Field>
+                    <PrimaryBtn type="submit" loading={loading}>
+                      Sign in <FaArrowRight className="w-3.5 h-3.5" />
+                    </PrimaryBtn>
+                  </form>
+                  <div className="px-6 pb-5 text-center border-t border-gray-100 pt-4">
+                    <button onClick={toggleMode} className="text-xs text-gray-400 hover:text-gray-900 transition-colors font-medium">
+                      Don't have an account?{" "}
+                      <span className="text-gray-900 underline underline-offset-2">Sign up</span>
+                    </button>
+                  </div>
+                </>
+              )}
 
-              <div className="mt-6 text-center">
-                <button onClick={toggleMode} className="text-sm text-neutral-500 hover:text-black transition-colors font-medium">
-                  Don't have an account? Sign Up
-                </button>
-              </div>
-            </>
+              {/* Bank employee login */}
+              {loginRole === "bank" && (
+                <>
+                  <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+                    <button
+                      onClick={() => setLoginRole(null)}
+                      className="text-gray-400 hover:text-gray-900 transition-colors"
+                    >
+                      <FaArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div>
+                      <h2 className="text-base font-bold text-gray-900">Employee sign in</h2>
+                      <p className="text-xs text-gray-400 mt-0.5">Access the admin dashboard</p>
+                    </div>
+                    <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-900 text-white text-[10px] font-mono">
+                      <FaUserTie className="w-2.5 h-2.5" /> Staff
+                    </span>
+                  </div>
+
+                  {/* Staff notice */}
+                  <div className="mx-6 mt-5 flex items-start gap-2.5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <FaShieldAlt className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-[11px] font-mono text-gray-500 leading-relaxed">
+                      Use your organization credentials. Access is logged and monitored.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleLogin} className="px-6 py-5 space-y-4">
+                    <Field label="Work email">
+                      <Input
+                        type="email"
+                        required
+                        value={loginData.email}
+                        onChange={(e) => setLoginData({ ...loginData, email: (e.target as HTMLInputElement).value })}
+                        placeholder="you@bank.com"
+                        icon={<FaEnvelope className="w-3.5 h-3.5" />}
+                      />
+                    </Field>
+                    <Field label="Password">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        value={loginData.password}
+                        onChange={(e) => setLoginData({ ...loginData, password: (e.target as HTMLInputElement).value })}
+                        placeholder="••••••••"
+                        icon={<FaLock className="w-3.5 h-3.5" />}
+                        right={
+                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-400 hover:text-gray-900 transition-colors">
+                            {showPassword ? <FaEyeSlash className="w-3.5 h-3.5" /> : <FaEye className="w-3.5 h-3.5" />}
+                          </button>
+                        }
+                      />
+                    </Field>
+                    <PrimaryBtn type="submit" loading={loading}>
+                      Access dashboard <FaArrowRight className="w-3.5 h-3.5" />
+                    </PrimaryBtn>
+                  </form>
+                  <div className="px-6 pb-5 text-center border-t border-gray-100 pt-4">
+                    <button onClick={toggleMode} className="text-xs text-gray-400 hover:text-gray-900 transition-colors font-medium">
+                      Not an employee?{" "}
+                      <span className="text-gray-900 underline underline-offset-2">Create customer account</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+            </div>
           )}
 
-          {/* ============================================ */}
-          {/* REGISTER FORM */}
-          {/* ============================================ */}
+          {/* ── REGISTER FORM ───────────────────────────────────────────── */}
           {!isChecking && !showRiskResult && !showOTP && !isLogin && (
-            <>
-              <div className="mb-8">
-                <h2 className="font-outfit text-2xl font-bold text-black tracking-tight">Create Account</h2>
-                <p className="mt-1 text-sm text-neutral-500 font-light">Fill in the details to get started</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-base font-bold text-gray-900">Create account</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Fill in the details to get started</p>
               </div>
 
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-                  {error}
-                </div>
-              )}
-
-              <div className="mb-6">
-                <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase block mb-2">
-                  I am a
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRole("bank")}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${
-                      selectedRole === "bank" 
-                        ? "border-black bg-neutral-50 shadow-sm" 
-                        : "border-neutral-200 hover:border-neutral-300 bg-white"
-                    }`}
-                  >
-                    <FaUserTie className={`w-4 h-4 ${selectedRole === "bank" ? "text-black" : "text-neutral-400"}`} />
-                    <span className={`text-xs font-medium ${selectedRole === "bank" ? "text-black" : "text-neutral-600"}`}>
-                      Bank Employee
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRole("customer")}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${
-                      selectedRole === "customer" 
-                        ? "border-[#00b87c] bg-[#00b87c]/5 shadow-sm" 
-                        : "border-neutral-200 hover:border-neutral-300 bg-white"
-                    }`}
-                  >
-                    <FaUser className={`w-4 h-4 ${selectedRole === "customer" ? "text-[#00b87c]" : "text-neutral-400"}`} />
-                    <span className={`text-xs font-medium ${selectedRole === "customer" ? "text-[#00b87c]" : "text-neutral-600"}`}>
-                      Customer
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Full Name
-                  </label>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaUser className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={registerData.name}
-                      onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="John Doe"
-                    />
+              <form onSubmit={handleRegister} className="px-6 py-5 space-y-4">
+                {/* Role picker */}
+                <Field label="I am a">
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { role: "bank" as const, icon: <FaUserTie className="w-3.5 h-3.5" />, label: "Bank employee" },
+                      { role: "customer" as const, icon: <FaUser className="w-3.5 h-3.5" />, label: "Customer" },
+                    ].map(({ role, icon, label }) => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => setSelectedRole(role)}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                          selectedRole === role
+                            ? "border-gray-900 bg-gray-900 text-white"
+                            : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-900"
+                        }`}
+                      >
+                        {icon} {label}
+                      </button>
+                    ))}
                   </div>
-                </div>
+                </Field>
 
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Email Address
-                  </label>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaEnvelope className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type="email"
-                      required
-                      value={registerData.email}
-                      onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="you@example.com"
-                    />
-                  </div>
-                </div>
+                <Field label="Full name">
+                  <Input
+                    type="text"
+                    required
+                    value={registerData.name}
+                    onChange={(e) => setRegisterData({ ...registerData, name: (e.target as HTMLInputElement).value })}
+                    placeholder="John Doe"
+                    icon={<FaUser className="w-3.5 h-3.5" />}
+                  />
+                </Field>
 
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Password
-                  </label>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaLock className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      minLength={6}
-                      value={registerData.password}
-                      onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-10 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="Min 6 characters"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-neutral-400 hover:text-black transition-colors"
-                    >
-                      {showPassword ? <FaEyeSlash className="h-4 w-4" /> : <FaEye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
+                <Field label="Email address">
+                  <Input
+                    type="email"
+                    required
+                    value={registerData.email}
+                    onChange={(e) => setRegisterData({ ...registerData, email: (e.target as HTMLInputElement).value })}
+                    placeholder="you@example.com"
+                    icon={<FaEnvelope className="w-3.5 h-3.5" />}
+                  />
+                </Field>
 
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                    Phone Number
-                  </label>
-                  <div className="relative rounded-lg shadow-sm">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <FaPhone className="h-4 w-4 text-neutral-400" />
-                    </div>
-                    <input
-                      type="tel"
-                      value={registerData.phone}
-                      onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })}
-                      className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                      placeholder="+91 98765 43210"
-                    />
-                  </div>
-                </div>
+                <Field label="Password">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    value={registerData.password}
+                    onChange={(e) => setRegisterData({ ...registerData, password: (e.target as HTMLInputElement).value })}
+                    placeholder="Min 6 characters"
+                    icon={<FaLock className="w-3.5 h-3.5" />}
+                    right={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-gray-400 hover:text-gray-900 transition-colors"
+                      >
+                        {showPassword ? <FaEyeSlash className="w-3.5 h-3.5" /> : <FaEye className="w-3.5 h-3.5" />}
+                      </button>
+                    }
+                  />
+                </Field>
+
+                <Field label="Phone number">
+                  <Input
+                    type="tel"
+                    value={registerData.phone}
+                    onChange={(e) => setRegisterData({ ...registerData, phone: (e.target as HTMLInputElement).value })}
+                    placeholder="+91 98765 43210"
+                    icon={<FaPhone className="w-3.5 h-3.5" />}
+                  />
+                </Field>
 
                 {selectedRole === "customer" && (
-                  <div className="space-y-1.5">
-                    <label className="font-mono text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                      Account Type
-                    </label>
-                    <div className="relative rounded-lg shadow-sm">
-                      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                        <FaIdCard className="h-4 w-4 text-neutral-400" />
-                      </div>
+                  <Field label="Account type">
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                        <FaIdCard className="w-3.5 h-3.5" />
+                      </span>
                       <select
                         value={registerData.accountType}
                         onChange={(e) => setRegisterData({ ...registerData, accountType: e.target.value })}
-                        className="block w-full rounded-lg border border-neutral-300/80 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-800 transition-all focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                        className="block w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-900 transition focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 appearance-none"
                       >
                         <option value="SAVINGS">Savings</option>
                         <option value="CURRENT">Current</option>
                         <option value="BUSINESS">Business</option>
                       </select>
                     </div>
-                  </div>
+                  </Field>
                 )}
 
                 {!selectedRole && (
-                  <p className="text-center text-xs text-amber-600 font-medium">
-                    ⚠️ Please select your role (Bank Employee or Customer)
+                  <p className="flex items-center gap-1.5 text-[11px] text-amber-600 font-mono">
+                    <FaExclamationTriangle className="w-3 h-3 flex-shrink-0" />
+                    Select your role to continue
                   </p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={loading || !selectedRole}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-black py-3 px-4 text-sm font-semibold text-white transition-all hover:bg-neutral-800 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                >
-                  {loading ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <>
-                      <FaUserPlus className="h-4 w-4" />
-                      <span>Create Account</span>
-                    </>
-                  )}
-                </button>
+                <PrimaryBtn type="submit" loading={loading} disabled={!selectedRole}>
+                  <FaUserPlus className="w-3.5 h-3.5" /> Create account
+                </PrimaryBtn>
               </form>
 
-              <div className="mt-6 text-center">
-                <button onClick={toggleMode} className="text-sm text-neutral-500 hover:text-black transition-colors font-medium">
-                  Already have an account? Sign In
+              <div className="px-6 pb-5 text-center">
+                <button
+                  onClick={toggleMode}
+                  className="text-xs text-gray-400 hover:text-gray-900 transition-colors font-medium"
+                >
+                  Already have an account? <span className="text-gray-900 underline underline-offset-2">Sign in</span>
                 </button>
               </div>
-            </>
+            </div>
           )}
 
-          <div className="mt-4 text-center text-xs text-neutral-400">
-            <span>Secure &bull; Encrypted &bull; Trusted</span>
-          </div>
+          {/* Footer note */}
+          <p className="text-center text-[10px] font-mono text-gray-400">
+            Secure · Encrypted · Trusted
+          </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
