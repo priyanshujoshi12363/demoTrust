@@ -42,7 +42,6 @@ import {
   FaUserNinja,
   FaUserSecret,
   FaUserFriends,
-  FaUserGroup,
   FaPlus,
   FaMinus,
   FaChevronLeft,
