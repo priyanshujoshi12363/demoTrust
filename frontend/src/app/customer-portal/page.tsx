@@ -1,5 +1,5 @@
 "use client";
-
+import React from 'react';
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
@@ -182,15 +182,15 @@ export default function CustomerDashboard() {
     return map[severity] || "text-neutral-600 bg-neutral-50 border-neutral-200";
   };
 
-  const getSeverityIcon = (severity: string) => {
-    const map: Record<string, JSX.Element> = {
-      LOW: <FaCheckCircle className="w-5 h-5 text-green-500" />,
-      MEDIUM: <FaExclamationTriangle className="w-5 h-5 text-yellow-500" />,
-      HIGH: <FaExclamationTriangle className="w-5 h-5 text-orange-500" />,
-      CRITICAL: <FaTimesCircle className="w-5 h-5 text-red-500" />,
-    };
-    return map[severity] || <FaShieldAlt className="w-5 h-5 text-neutral-500" />;
+const getSeverityIcon = (severity: string) => {
+  const map: Record<string, React.ReactElement> = {
+    LOW: <FaCheckCircle className="w-5 h-5 text-green-500" />,
+    MEDIUM: <FaExclamationTriangle className="w-5 h-5 text-yellow-500" />,
+    HIGH: <FaExclamationTriangle className="w-5 h-5 text-orange-500" />,
+    CRITICAL: <FaTimesCircle className="w-5 h-5 text-red-500" />,
   };
+  return map[severity] || <FaShieldAlt className="w-5 h-5 text-neutral-500" />;
+};
 
   const getDecisionColor = (decision: string) => {
     const map: Record<string, string> = {

@@ -198,38 +198,35 @@ export default function TransactionPage() {
     router.push("/customer-portal");
   };
 
-  // ============================================
-  // Helper Functions
-  // ============================================
-  const getSeverityColor = (severity: string) => {
-    const map: Record<string, string> = {
-      LOW: "text-green-600 bg-green-50 border-green-200",
-      MEDIUM: "text-yellow-600 bg-yellow-50 border-yellow-200",
-      HIGH: "text-orange-600 bg-orange-50 border-orange-200",
-      CRITICAL: "text-red-600 bg-red-50 border-red-200",
-    };
-    return map[severity] || "text-neutral-600 bg-neutral-50 border-neutral-200";
+const getSeverityColor = (severity: string) => {
+  const map: Record<string, string> = {
+    LOW: "text-green-600 bg-green-50 border-green-200",
+    MEDIUM: "text-yellow-600 bg-yellow-50 border-yellow-200",
+    HIGH: "text-orange-600 bg-orange-50 border-orange-200",
+    CRITICAL: "text-red-600 bg-red-50 border-red-200",
   };
+  return map[severity] || "text-neutral-600 bg-neutral-50 border-neutral-200";
+};
 
-  const getSeverityIcon = (severity: string) => {
-    const map: Record<string, JSX.Element> = {
-      LOW: <FaCheckCircle className="w-5 h-5 text-green-500" />,
-      MEDIUM: <FaExclamationTriangle className="w-5 h-5 text-yellow-500" />,
-      HIGH: <FaExclamationTriangle className="w-5 h-5 text-orange-500" />,
-      CRITICAL: <FaTimesCircle className="w-5 h-5 text-red-500" />,
-    };
-    return map[severity] || <FaShieldAlt className="w-5 h-5 text-neutral-500" />;
+const getSeverityIcon = (severity: string) => {
+  const map: Record<string, React.ReactElement> = {  // ← Changed from JSX.Element
+    LOW: <FaCheckCircle className="w-5 h-5 text-green-500" />,
+    MEDIUM: <FaExclamationTriangle className="w-5 h-5 text-yellow-500" />,
+    HIGH: <FaExclamationTriangle className="w-5 h-5 text-orange-500" />,
+    CRITICAL: <FaTimesCircle className="w-5 h-5 text-red-500" />,
   };
+  return map[severity] || <FaShieldAlt className="w-5 h-5 text-neutral-500" />;
+};
 
-  const getDecisionColor = (decision: string) => {
-    const map: Record<string, string> = {
-      ALLOW: "text-green-600 bg-green-50 border-green-200",
-      CHALLENGE: "text-yellow-600 bg-yellow-50 border-yellow-200",
-      REVIEW: "text-orange-600 bg-orange-50 border-orange-200",
-      BLOCK: "text-red-600 bg-red-50 border-red-200",
-    };
-    return map[decision] || "text-neutral-600 bg-neutral-50 border-neutral-200";
+const getDecisionColor = (decision: string) => {
+  const map: Record<string, string> = {
+    ALLOW: "text-green-600 bg-green-50 border-green-200",
+    CHALLENGE: "text-yellow-600 bg-yellow-50 border-yellow-200",
+    REVIEW: "text-orange-600 bg-orange-50 border-orange-200",
+    BLOCK: "text-red-600 bg-red-50 border-red-200",
   };
+  return map[decision] || "text-neutral-600 bg-neutral-50 border-neutral-200";
+};
 
   // ============================================
   // Render
